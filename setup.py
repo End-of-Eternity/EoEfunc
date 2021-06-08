@@ -10,9 +10,9 @@ setup(
     name="EoEfunc",
     version=meta["__version__"],
     packages=["EoEfunc"],
-    package_data={"EoEfunc": ["py.typed"]},
     author="EoE",
     description="A load of useless garbage written by me (EoE)",
-    install_requires=["vapoursynth"],
+    url="https://gitlab.com/arjraj/EoEfunc.git",
+    install_requires=["vapoursynth", "numpy"],
     python_requires=">=3.8",
 )
