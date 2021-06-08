@@ -13,6 +13,6 @@ setup(
     author="EoE",
     description="A load of useless garbage written by me (EoE)",
     url="https://gitlab.com/arjraj/EoEfunc.git",
-    install_requires=["vapoursynth", "numpy"],
+    install_requires=["certifi", "vapoursynth", "numpy"],
     python_requires=">=3.8",
 )
