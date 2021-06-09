@@ -3,27 +3,6 @@ import vapoursynth as vs
 core = vs.core
 
 
-def range_nearest(max, start=None, min=0):
-    from itertools import cycle, islice
-
-    if start is None:
-        start = (max + min) // 2
-    if min >= max or min > start > max:
-        raise ValueError("Min must be smaller than max, and start must be between the two")
-    bwd = range(start, min - 1, -1)
-    fwd = range(start + 1, max, 1)
-    iters = [bwd, fwd]
-    num_active = len(iters)
-    nexts = cycle(iter(it).__next__ for it in iters)
-    while num_active:
-        try:
-            for next in nexts:
-                yield next()
-        except StopIteration:
-            num_active -= 1
-            nexts = cycle(islice(nexts, num_active))
-
-
 def chunked_cocktail_shaker(upper, lower=0, start=None, blocksize=100):
     from itertools import chain, zip_longest
     import math
@@ -38,7 +17,10 @@ def chunked_cocktail_shaker(upper, lower=0, start=None, blocksize=100):
         raise ValueError("blocksize must be more than 0")
 
     fwd = [
-        range(max(start + blocksize * n, lower), min(start + blocksize * (n + 1), upper))
+        range(
+            max(start + blocksize * n, lower),
+            min(start + blocksize * (n + 1), upper),
+        )
         for n in range(math.ceil((upper - start) / blocksize))
     ]
 
@@ -66,6 +48,4 @@ def peak(clip: vs.VideoNode):
 
 
 def neutral(clip: vs.VideoNode):
-    from math import floor
-
-    return floor(peak(clip) / 2) if clip.format.sample_type == vs.INTEGER else 0.5
+    return peak(clip) // 2 if clip.format.sample_type == vs.INTEGER else 0.5
