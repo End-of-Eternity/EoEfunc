@@ -16,7 +16,7 @@ def rescale(
     get_mask: bool = False,
     **mask_args,
 ) -> vs.VideoNode:
-    from .format import set_format, make_similar
+    from .format import set_format, make_similar, make_similar_mask
     from vsutil import split, join, get_y
     import kagefunc as kgf
     import fvsfunc as fvf
@@ -43,12 +43,9 @@ def rescale(
         mask = get_descale_mask(get_y(src), upscaled, rescale_threshold, **mask_args)
         if mask_detail:
             planes[0] = core.std.MaskedMerge(planes[0], get_y(src), mask)
-        mask = core.resize.Point(
-            mask, format=src.format.replace(color_family=vs.GRAY, subsampling_h=0, subsampling_w=0)
-        )
     scaled = join(planes)
     scaled = core.resize.Point(scaled, format=src.format)
-    return (scaled, mask) if get_mask else scaled
+    return (scaled, make_similar_mask(mask, scaled)) if get_mask else scaled
 
 
 def get_descale_mask(
