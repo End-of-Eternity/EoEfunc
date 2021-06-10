@@ -337,10 +337,10 @@ def make_similar(
     return out[0] if len(out) == 1 else out
 
 
-def make_similar_mask(clip: vs.VideoNode, mask: vs.VideoNode) -> vs.VideoNode:
+def make_similar_mask(mask: vs.VideoNode, ref: vs.VideoNode) -> vs.VideoNode:
     if mask.format.color_family != vs.GRAY:
         raise ValueError("makeSimilarMask is intended for GRAY mask clips")
-    return _set_format_internal(mask, clip.format.replace(color_family=vs.GRAY))
+    return _set_format_internal(mask, get_format(ref, "gray"))
 
 
 @overload
