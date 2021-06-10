@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 import vapoursynth as vs
+from vsutil.clips import join
 
 core = vs.core
 
@@ -403,12 +404,12 @@ def BM3D(
     **kwargs,
 ):
     from . import format
-    from vsutil.clips import get_y
+    from vsutil.clips import get_y, split
     import sys
 
     input_original = src
 
-    def is_gray(clip):
+    def is_gray(clip: vs.VideoNode) -> bool:
         return clip.format.color_family == vs.GRAY
 
     if CUDA is None:
@@ -580,14 +581,19 @@ def BM3D(
         filter_param_b=0.5,
         matrix_s=matrix,
     )
-    if input_original.format.num_planes == 3 and not (
-        sigma[0][1] + sigma[0][2] + sigma[1][1] + sigma[1][2]
-    ):
-        return core.std.ShufflePlanes(
-            [out, input_original], [0, 1, 2], input_original.format.color_family
-        )
-    else:
-        return out
+    if input_original.format.num_planes == 3:
+        # we didn't upload chroma
+        if src.format.color_family == vs.GRAY:
+            out = join([out] + split(input_original)[1:], input_original.format.color_family)
+        else:
+            # bm3dcuda seems to set the luma to garbage if it isnt processed
+            for i in [0, 1]:
+                if CUDA[i] and not sigma[i][0] and (sigma[i][1] + sigma[i][2]):
+                    out = join(
+                        [get_y(input_original)] + split(out)[1:], input_original.format.color_family
+                    )
+
+    return out
 
 
 def decheckerboard(
