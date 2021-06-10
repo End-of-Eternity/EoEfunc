@@ -457,7 +457,7 @@ def BM3D(
         if r is None:
             radius[i] = {"fast": 1, None: 1, "lc": 2, "np": 3, "high": 4, "vn": 4}[profile[i]]
 
-    if not (sigma[0][1] + sigma[0][1]):
+    if not (sigma[0][1] + sigma[0][2] + sigma[1][1] + sigma[1][2]):
         src = get_y(src)
 
     if src.format.color_family == vs.GRAY:
@@ -580,7 +580,9 @@ def BM3D(
         filter_param_b=0.5,
         matrix_s=matrix,
     )
-    if not (sigma[0][1] + sigma[0][1]) and input_original.format.num_planes == 3:
+    if input_original.format.num_planes == 3 and not (
+        sigma[0][1] + sigma[0][2] + sigma[1][1] + sigma[1][2]
+    ):
         return core.std.ShufflePlanes(
             [out, input_original], [0, 1, 2], input_original.format.color_family
         )
