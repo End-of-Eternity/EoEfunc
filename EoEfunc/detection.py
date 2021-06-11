@@ -117,7 +117,7 @@ def find_scenes(
     if ordered:
         start_frame = 0
         indexes: List[int] = []
-        for i in range(scenes):
+        for i in range(len(scenes)):
             stats_clip = stats_clips[i][start_frame:]
             if not silent:
                 print(f"Searching for scene {i}/{len(scenes)}")
