@@ -90,7 +90,7 @@ def find_scenes(
     elif len(thr) != len(scenes):
         raise ValueError("thr length must be equal to the number of scenes if a list")
 
-    for i in len(thr):
+    for i in range(len(thr)):
         if thr[i] is None or thr[i] == 0:
             if strict:
                 raise ValueError("strict cannot be used with thr = None or 0")
@@ -121,7 +121,9 @@ def find_scenes(
             stats_clip = stats_clips[i][start_frame:]
             if not silent:
                 print(f"Searching for scene {i}/{len(scenes)}")
-            indexes.append(_search_nearest(stats_clip, range(len(stats_clips)), thr[i], 0, strict, silent))
+            indexes.append(
+                _search_nearest(stats_clip, range(len(stats_clips)), thr[i], 0, strict, silent)
+            )
             start_frame = indexes[i] + 1
     else:
         indexes = _search_nearest(scenes, range(len(stats_clips)), thr, 0, strict, silent)
@@ -169,7 +171,9 @@ def _search_nearest(
     count = 0
     start = timer()
     for count, frame_number in enumerate(gen):
-        for k, (i, frame) in enumerate(list((i, c.get_frame(frame_number)) for i, c in stats_clips)):
+        for k, (i, frame) in enumerate(
+            list((i, c.get_frame(frame_number)) for i, c in stats_clips)
+        ):
             diff = frame.props["PlaneStatsDiff"]
             if not (count % 100) or diff < guesses[i][1]:
                 if diff < guesses[i][1]:
@@ -181,7 +185,8 @@ def _search_nearest(
             end = timer()
             fps = 100 / (end - start)
             _print(
-                f"Attempt: {count}  {fps:.2f} fps, eta {(stats_clips[0][1].num_frames - count) / fps:.2f}s      \r",
+                f"Attempt: {count}  {fps:.2f} fps, eta"
+                f" {(stats_clips[0][1].num_frames - count) / fps:.2f}s      \r",
                 end="",
             )
             start = timer()
