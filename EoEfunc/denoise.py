@@ -597,7 +597,9 @@ def BM3D(
 
 
 def decheckerboard(
-    src: vs.VideoNode, mask: Optional[vs.VideoNode], slocation=[0.0, 0, 0.85, 0, 0.9, 512, 1.0, 512]
+    src: vs.VideoNode,
+    mask: Optional[vs.VideoNode] = None,
+    slocation: List[float] = [0.0, 0, 0.85, 0, 0.9, 512, 1.0, 512],
 ) -> vs.VideoNode:
     from .frequencies import _dfttest_args
     import kagefunc as kgf
@@ -607,7 +609,7 @@ def decheckerboard(
     clip = src
     if src.format.color_family != vs.GRAY:
         clip = get_y(src)
-    clip = core.dfttest.DFTTest(clip, sbsize=9, slocation=slocation, **_dfttest_args)
+    clip = core.dfttest.DFTTest(clip, slocation=slocation, **_dfttest_args)
     if not mask:
         mask = kgf.retinex_edgemask(clip)
         mask = iterate(mask, core.std.Inflate, 2)
