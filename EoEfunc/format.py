@@ -343,6 +343,24 @@ def make_similar_mask(mask: vs.VideoNode, ref: vs.VideoNode) -> vs.VideoNode:
     return _set_format_internal(mask, get_format(ref, "gray"))
 
 
+def process_as(
+    clip: vs.VideoNode,
+    function: Callable[[vs.VideoNode], vs.VideoNode],
+    format: Union[str, vs.Format, vs.VideoNode],
+    resizer: Optional[Callable] = None,
+    chroma_doubler: Union[Callable, bool] = False,
+    **resizer_args,
+) -> vs.VideoNode:
+
+    # get a format str from any input
+    if isinstance(format, vs.VideoNode):
+        format = format.format
+
+    process_in = set_format(clip, str(format), resizer, chroma_doubler, **resizer_args)
+    process_out = function(process_in)
+    return make_similar(process_out, clip, resizer, chroma_doubler, **resizer_args)
+
+
 @overload
 def matrix_enum(matrix: str) -> int:
     ...
