@@ -145,7 +145,7 @@ def __dfttest(clip, **dfttest_args):
     if "sst" in keys and ("tbsize" not in keys or keys["tbsize"] < 2):
         raise ValueError("tbsize should be > 1 when using sst")
     kwargs = {**_dfttest_args, **dfttest_args}
-    kwargs = {k: v.tolist() if isinstance(v, SLocation) else v for k, v in kwargs.items()}
+    kwargs = {k: v.to_list() if isinstance(v, SLocation) else v for k, v in kwargs.items()}
     return core.dfttest.DFTTest(clip, **kwargs)
 
 
