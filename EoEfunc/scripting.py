@@ -7,6 +7,8 @@ Functions
 - debug_output
 """
 from typing import Any, Dict, List, Optional, Union
+from contextlib import suppress
+
 import vapoursynth as vs
 
 core = vs.core
@@ -26,8 +28,9 @@ def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
             Max amount of system memory for Vapoursynth to use (in GiB)
         num_threads or DEFAULT_THREADS: int
             Number of threads for Vapoursynth to use
-        GPU: int
+        GPU: Union[int, bool]
             Hardware acceleration device index to set. Falls back to 0
+            False for no hardware acceleration
         src_path or DEFAULT_PATH: str
             Path to input video to be indexed
 
@@ -95,12 +98,18 @@ def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
                 file=sys.stderr,
             )
 
+    env["use_hwaccel"] = True
+    env["GPU"] = 0
     if "GPU" in env:
-        env["GPU"] = int(env["GPU"].decode("utf-8"))
-        print(f"Vapoursynth: INFO --> Using GPU {env['GPU']}", file=sys.stderr)
+        decoded_GPU = env["GPU"].decode("utf-8")
+        if decoded_GPU.lower() in ["false", "no"]:
+            env["use_hwaccel"] = False
+        else:
+            with suppress(ValueError):
+                env["GPU"] = int(decoded_GPU)
+            print(f"Vapoursynth: INFO --> Using GPU {env['GPU']}", file=sys.stderr)
     else:
         print("Vapoursynth: WARNING --> No GPU specified, using GPU 0 by default", file=sys.stderr)
-        env["GPU"] = 0
 
     env["debug"] = "src_path" not in env
     if env["debug"]:
