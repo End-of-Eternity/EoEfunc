@@ -99,16 +99,17 @@ def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
             )
 
     env["use_hwaccel"] = True
-    env["GPU"] = 0
     if "GPU" in env:
         decoded_GPU = env["GPU"].decode("utf-8")
         if decoded_GPU.lower() in ["false", "no"]:
             env["use_hwaccel"] = False
         else:
+            env["GPU"] = 0
             with suppress(ValueError):
                 env["GPU"] = int(decoded_GPU)
             print(f"Vapoursynth: INFO --> Using GPU {env['GPU']}", file=sys.stderr)
     else:
+        env["GPU"] = 0
         print("Vapoursynth: WARNING --> No GPU specified, using GPU 0 by default", file=sys.stderr)
 
     env["debug"] = "src_path" not in env
