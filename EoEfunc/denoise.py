@@ -266,7 +266,11 @@ def CMDegrain(
 
         cshift = 0.25 if pel == 2 else 0.375
         nnargs = dict(
-            inputClip.width * pel, inputClip.height * pel, src_left=cshift, src_top=cshift, nns=4
+            target_width=inputClip.width * pel,
+            target_height=inputClip.height * pel,
+            src_left=cshift,
+            src_top=cshift,
+            nns=4,
         )
         pclip = nnrs.nnedi3_resample(pref, **nnargs)
         if not readGlobals:
