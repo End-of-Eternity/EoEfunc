@@ -1,97 +1,132 @@
-from typing import Any, Dict, List, Optional, Union
+from functools import partial
+import sys
+from typing import Callable, Dict, List, Optional, Union
+from enum import Enum
 import vapoursynth as vs
-from vsutil.clips import join
 
 core = vs.core
 
 
-def prefilter3(clip: vs.VideoNode):
-    from .util import peak
-    from havsfunc import scale
-    from vsutil import get_y
+class GlobalMode(Enum):
+    IGNORE = 0
+    READ = 1
+    WRITE = 2
+    WRITEONLY = 3
 
-    peak = peak(clip)
-    i = scale(16, peak)
-    j = scale(75, peak)
-    expr = f"x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?"
-    return core.std.MaskedMerge(
-        clip.dfttest.DFTTest(tbsize=1, slocation=[0.0, 4.0, 0.2, 9.0, 1.0, 15.0]),
-        clip,
-        get_y(clip).std.Expr(expr=[expr]),
-    )
+
+class Pel(Enum):
+    FULL = 1
+    HALF = 2
+    QUARTER = 4
+
+
+class SubPel(Enum):
+    BILINEAR = 0
+    BICUBIC = 1
+    WIENER = 2
+    NNEDI3 = 3
+
+
+class Prefilter(Enum):
+    LIGHT = 0
+    MEDIUM = 1
+    STRONG = 2
+    DFTTEST = 3
+    KNLMEANS = 4
+
+
+class MVMode(Enum):
+    INTEGER = 0
+    FLOAT_OLD = 1
+    FLOAT_NEW = 2
+
+    @property
+    def namespace(self):
+        if self == MVMode.INTEGER:
+            return core.mv
+        else:
+            return core.mvsf
+
+    @property
+    def Super(self):
+        return self.namespace.Super
+
+    @property
+    def Analyse(self):
+        if self == MVMode.INTEGER:
+            return self.namespace.Analyse
+        else:
+            return self.namespace.Analyze
+
+    @property
+    def Recalculate(self):
+        return self.namespace.Recalculate
+
+    def Degrain(self, radius: Optional[int] = None) -> Callable:
+        if radius is None:
+            if self == MVMode.FLOAT_NEW:
+                return self.namespace.Degrain
+            else:
+                raise ValueError(f"{self.name}.Degrain needs radius")
+        elif (self == MVMode.FLOAT_OLD and 1 <= radius <= 24) or (
+            self == MVMode.INTEGER and 1 <= radius <= 3
+        ):
+            return getattr(self.namespace, f"Degrain{radius}")
+        raise ValueError(f"{self.name}.Degrain doesn't support a radius of {radius}")
+
+
+# accessable outside of denoise.py without being pepegastoopid
+global_mv_vectors: Dict[str, Optional[Union[vs.VideoNode, MVMode]]] = {"MVMode": None}
 
 
 def CMDegrain(
-    # This needs to be cleaned up. Everything past `planes` (excluding prefilter) can easily
-    # be moved into kwargs. the rest... idk
     src: vs.VideoNode,
-    tr: int = 2,  # V W X Y Z
-    thSAD: int = 300,
+    tr: int = 2,
+    thSAD: int = 200,
     thSADC: Optional[int] = None,
-    RefineMotion: int = 3,
-    highPrecision: bool = False,
-    contrasharp: Optional[Union[int, bool]] = None,
-    contraClip: Optional[vs.VideoNode] = None,
-    freqMerge: Union[bool, vs.VideoNode] = True,
-    slocation: Optional[List[int]] = None,
-    interlaced: bool = False,
-    tff: Optional[bool] = None,
-    planes: Union[int, List[int]] = [0, 1, 2],
-    Globals: int = 0,
-    prefilter: Optional[Union[int, vs.VideoNode]] = None,
-    pel: Optional[int] = None,
-    subpixelInterpolation: int = 2,
-    mfilter: Optional[vs.VideoNode] = None,
-    blksize: Optional[int] = None,
-    search: int = 4,
+    refine: int = 3,
+    highprecision: bool = False,
+    contrasharp: Union[bool, vs.VideoNode] = False,
+    freq_merge: Optional[Union[bool, vs.VideoNode]] = None,
+    planes: Optional[Union[int, List[int]]] = None,
+    globalmode: GlobalMode = GlobalMode.IGNORE,
+    prefilter: Optional[Union[Prefilter, vs.VideoNode]] = None,
+    pel: Optional[Pel] = None,
+    subpel: SubPel = SubPel.WIENER,
     truemotion: Optional[bool] = None,
-    dct: int = 0,
-    limit: int = 255,
-    limitc: Optional[int] = None,
-    thSCD1: int = 400,
-    thSCD2: int = 130,
-    chroma: bool = True,
-    Str: float = 1.0,
-    Amp: float = 0.0625,
 ):
-    from .util import peak
     from .misc import ContraSharpening
     from . import format
-    from .frequencies import _slocation, extract_frequency, merge_frequency
-    from havsfunc import scale, MinBlur, DitherLumaRebuild, LSFmod
+    from .frequencies import merge_frequency
+    from havsfunc import MinBlur, DitherLumaRebuild
+    from vsutil import scale_value, get_y
 
-    inputClip = src
+    input_clip = src
 
-    if not isinstance(inputClip, vs.VideoNode):
-        raise vs.Error("CMDegrain: This is not a clip")
+    if input_clip.format is None:
+        raise ValueError("Variable format is horrible, go away")
+    elif input_clip.format.color_family not in [vs.GRAY, vs.YUV]:
+        raise ValueError("This function is intended for Gray or YUV clips")
 
-    if inputClip.format.color_family == vs.GRAY:
+    for clip in [prefilter, contrasharp, freq_merge]:
+        if isinstance(clip, vs.VideoNode) and clip.format != src.format:
+            raise ValueError("All input clip formats must be identical to source")
+
+    if contrasharp and src.format.sample_type == vs.FLOAT:
+        raise vs.Error("ContraSharpening is not supported for float input")
+
+    if planes is not None and isinstance(planes, int):
+        planes = [planes]
+
+    chroma = True
+    if input_clip.format.color_family == vs.GRAY:
+        if planes is not None and planes != [0]:
+            raise ValueError("Can't denoise secondary planes of a gray input clip")
         planes = [0]
         chroma = False
+    elif planes is None:
+        planes = [0, 1, 2]
 
-    if thSADC is None:
-        thSADC = thSAD // 2
-
-    if inputClip.format.sample_type == vs.FLOAT or tr > 3 or highPrecision:
-        if not hasattr(core, "mvsf"):
-            raise vs.Error(
-                "CMDegrain: mvsf is required for float input, tr > 3, or highPrecision."
-                " https://github.com/IFeelBloated/vapoursynth-mvtools-sf"
-            )
-        if not inputClip.format.sample_type == vs.FLOAT:
-            inputClip = format.set_format(inputClip, "s")
-        mv = core.mvsf
-        mvint = False
-    else:
-        if not hasattr(core, "mv"):
-            raise vs.Error(
-                "CMDegrain: mvtools is required for integer input, and tr <= 3. "
-                "https://github.com/dubhater/vapoursynth-mvtools"
-            )
-        mv = core.mv
-        mvint = True
-
-    planes = [planes] if isinstance(planes, int) else sorted(planes)
     if planes == [0, 1, 2]:
         mvplane = 4
     elif len(planes) == 1:
@@ -99,293 +134,225 @@ def CMDegrain(
     elif planes == [1, 2]:
         mvplane = 3
     else:
-        raise vs.Error(
-            "CMDegrain: planes must be either all planes, "
-            "an individual plane, or both chroma planes."
+        raise ValueError(
+            "planes must be either all planes, an individual plane, or both chroma planes."
         )
 
-    peak = peak(inputClip)
+    if thSADC is None:
+        thSADC = thSAD // 2
 
-    # Globals 0 means just do everything
-    readGlobals = Globals == 1
-    outputGlobals = Globals == 3
+    if freq_merge is None:
+        freq_merge = thSAD >= 200
 
-    isHD = inputClip.width > 1024 or inputClip.height > 576
+    isHD = input_clip.width > 1024 or input_clip.height > 576
 
     if pel is None:
-        pel = 1 if isHD else 2
-    # subpixelInterpolation (originally just subpixel) is passed to mvtools as the "sharp" param
-    # it has three modes, 0, 1 and 2. This version of SMDe adds a fourth mode, 3.
-    # since it's calculated here, and not by mvtools, we need to make sure it doesnt execute
-    # if pel is less than 2, since then theres no subpixel estimation anyway, and we'd just
-    # be wasting cpu time
-    if pel < 2:
-        subpixelInterpolation = min(subpixelInterpolation, 2)
+        pel = Pel.FULL if isHD else Pel.HALF
+    if pel == Pel.FULL:
+        subpel = min(subpel, SubPel.WIENER)
 
-    if blksize is None:
-        blksize = max(2 ** (RefineMotion + 2), 16 if isHD else 8)
+    blksize = max(2 ** (refine + 2), 16 if isHD else 8)
     if truemotion is None:
         truemotion = not isHD
 
-    limit = scale(limit, peak)
-    if limitc is None:
-        limitc = limit
-    else:
-        limitc = scale(limitc, peak)
+    limit = scale_value(255, 8, input_clip.format.bits_per_sample)
 
-    if interlaced:
-        if not isinstance(tff, bool):
-            raise vs.Error(
-                "CMDegrain: when filtering interlaced inputs, tff must be specified as a boolean"
+    if refine > 6:
+        raise ValueError("refine > 6 is not supported")
+    elif highprecision or refine == 6 or tr > 3:
+        input_clip = format.set(input_clip, "s")
+        mvmode = MVMode.FLOAT_NEW
+        if not hasattr(core, "mvsf"):
+            raise ImportError(
+                "Missing mvsf. Please grab https://github.com/IFeelBloated/vapoursynth-mvtools-sf"
             )
-        inputClip = core.std.SeparateFields(inputClip, tff)
-
-        def check_seperated(clip, name):
-            if isinstance(clip, vs.VideoNode) and clip.height == inputClip.height * 2:
-                raise vs.Error(
-                    f"CMDegrain: when filtering interlaced inputs, {name} fields must be seperated."
+        if not hasattr(core.mvsf, "Degrain"):
+            if tr > 24:
+                raise ImportError(
+                    "If you're mad enough to want to use tr > 24, you're going to need to build the"
+                    " master branch of https://github.com/IFeelBloated/vapoursynth-mvtools-sf"
                 )
-
-        check_seperated(mfilter, "mfilter")
-        check_seperated(prefilter, "prefilter")
-        check_seperated(freqMerge, "freqMerge")
-
-    def check_similar(clipa: Union[vs.VideoNode, Any], clipb: vs.VideoNode, name: str):
-        if isinstance(clipa, vs.VideoNode) and (
-            clipa.height != clipb.height
-            or clipa.width != clipb.width
-            or format.get_format(clipa, "8") != format.get_format(clipb, "8")
-        ):
-            raise vs.Error(
-                f"CMDegrain: inputClip clip and {name} must have the same "
-                "dimensions, color family and subsampling"
+            print(
+                "CMDegrain: Using older mvsf. Building"
+                " https://github.com/IFeelBloated/vapoursynth-mvtools-sf from master is"
+                " recommended",
+                file=sys.stderr,
             )
+            mvmode = MVMode.FLOAT_OLD
+    else:
+        if not hasattr(core, "mv"):
+            raise ImportError(
+                "Missing mvtools. Please grab https://github.com/dubhater/vapoursynth-mvtools"
+            )
+        mvmode = MVMode.INTEGER
 
-    check_similar(mfilter, inputClip, "mfilter")
-    check_similar(prefilter, inputClip, "prefilter")
-    check_similar(contraClip, src, "contraClip")
-    check_similar(freqMerge, src, "freqMerge")
+    if globalmode != GlobalMode.IGNORE:
+        global global_mv_vectors
+        vectors = global_mv_vectors
+        if globalmode == GlobalMode.READ and vectors["MVMode"] != mvmode:
+            raise ValueError(
+                f"Unable to read vectors from global dictionary. Expected mvmode {mvmode}, found"
+                f" {vectors['MVMode']}"
+            )
+        else:
+            vectors["MVMode"] = mvmode
+    else:
+        vectors = {}
 
-    if contrasharp is None:
-        contrasharp = contraClip is not None
-    elif not (isinstance(contrasharp, bool) or isinstance(contrasharp, int)):
-        raise vs.Error("CMDegrain: 'contrasharp' only accepts bool and integer inputs")
-    if contrasharp:
-        if src.format.sample_type == vs.FLOAT:
-            raise vs.Error("CMDegrain: ContraSharpening is not supported for float inputClips")
-        if contraClip is None:
-            contraClip = src
-        elif contraClip.format != src.format:
-            contraClip = format.make_similar(contraClip, src)
-
-    if not (isinstance(prefilter, vs.VideoNode) or isinstance(prefilter, int) or prefilter is None):
-        raise vs.Error("CMDegrain: 'prefilter' only accepts integer and clip inputs")
-    elif isinstance(prefilter, vs.VideoNode) and prefilter.format != inputClip.format:
-        prefilter = format.make_similar(prefilter, inputClip)
-
-    if not (isinstance(freqMerge, vs.VideoNode) or isinstance(freqMerge, bool)):
-        raise vs.Error("CMDegrain: 'freqMerge' only accepts boolean and clip inputs")
-    elif isinstance(freqMerge, vs.VideoNode) and freqMerge.format != src.format:
-        freqMerge = format.make_similar(freqMerge, src)
-
-    if mfilter is None:
-        mfilter = inputClip
-    elif mfilter.format != inputClip.format:
-        mfilter = format.make_similar(mfilter, inputClip)
-
-    if mvint and RefineMotion == 6:
-        raise ValueError(
-            "CMDegrain: Integer MVtools only supports up to RefineMotion=5. "
-            "Use highPrecision=True for RefineMotion=6"
-        )
-    elif RefineMotion > 6:
-        raise ValueError("CMDegrain: RefineMotion > 6 is not supported")
-
-    if blksize & (blksize - 1) != 0:
-        raise ValueError("CMDegrain: blksize must be a power of 2")
-    if RefineMotion and blksize < 2 ** (RefineMotion + 2):
-        raise ValueError(
-            "CMDegrain: blksize needs to be at least 2^(RefineMotion + 2), "
-            "when RefineMotion is enabled"
-        )
-    if mvint and blksize == 256:
-        raise ValueError(
-            "CMDegrain: Integer MVtools only supports up to blksize=128. "
-            "Use highPrecision=True for blksize=256"
-        )
-    elif blksize > 256:
-        raise ValueError("CMDegrain: blksize > 256 is not supported")
-
-    if tr > 24:
-        raise ValueError("CMDegrain: mvsf only supports up to tr=24. Any more and you'd be mad.")
-
-    if not chroma and planes != [0]:
-        raise ValueError(
-            "CMDegrain: Denoising chroma with luma only vectors is bugged"
-            " in mvtools and thus unsupported. Either set chroma=True, or planes=0"
-        )
-
-    if not readGlobals:
-        if isinstance(prefilter, vs.VideoNode):
-            pref = prefilter
-        elif prefilter is None:
-            pref = inputClip
-        elif prefilter == 3:
-            pref = prefilter3(inputClip)
-        elif prefilter >= 4:
+    if globalmode != GlobalMode.READ:
+        resample_input = True
+        if prefilter is None:
+            prefilter = input_clip
+            resample_input = False
+        elif isinstance(prefilter, vs.VideoNode):
+            prefilter = format.make_similar(prefilter, input_clip)
+        elif prefilter == Prefilter.DFTTEST:
+            peak = 1 if clip.format.sample_type == vs.FLOAT else 2 << clip.format.bits_per_sample
+            i = scale_value(16, 8, clip.format.bits_per_sample)
+            j = scale_value(75, 8, clip.format.bits_per_sample)
+            expr = f"x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?"
+            return core.std.MaskedMerge(
+                clip.dfttest.DFTTest(tbsize=1, slocation=[0.0, 4.0, 0.2, 9.0, 1.0, 15.0]),
+                clip,
+                get_y(clip).std.Expr(expr=[expr]),
+            )
+        elif prefilter == Prefilter.KNLMEANS:
             knlm_args = dict(d=1, a=1, h=7)
             if chroma:
                 # workaround for subsampled input
-                if inputClip.format.subsampling_w > 0 or inputClip.format.subsampling_h > 0:
-                    pref = inputClip.knlm.KNLMeansCL(channels="y", **knlm_args).knlm.KNLMeansCL(
-                        channels="uv", **knlm_args
-                    )
+                if input_clip.format.subsampling_w > 0 or input_clip.format.subsampling_h > 0:
+                    prefilter = input_clip.knlm.KNLMeansCL(
+                        channels="y", **knlm_args
+                    ).knlm.KNLMeansCL(channels="uv", **knlm_args)
                 else:
-                    pref = inputClip.knlm.KNLMeansCL(channels="yuv", **knlm_args)
+                    prefilter = input_clip.knlm.KNLMeansCL(channels="yuv", **knlm_args)
             else:
-                pref = inputClip.knlm.KNLMeansCL(**knlm_args, channels="y")
+                prefilter = input_clip.knlm.KNLMeansCL(**knlm_args, channels="y")
         else:
-            pref = MinBlur(inputClip, r=prefilter, planes=planes)
-
-        prefilter = pref
+            prefilter = MinBlur(input_clip, r=prefilter.value, planes=planes)
 
         # Default Auto-Prefilter - Luma expansion TV->PC
         # (up to 16% more values for motion estimation)
         # had to add a workaround here. DitherLumaRebuild looks like it
         # *should* support float input, but also looks like value scaling
         # is incorrect. Just make sure to only pass it integer clips.
-        pref = format.set_format(pref, "16")
-        pref = DitherLumaRebuild(pref, s0=Str, c=Amp, chroma=chroma)
-        pref = format.make_similar(pref, inputClip)
+        rebuild_partial = partial(DitherLumaRebuild, s0=1.0, c=0.0625, chroma=chroma)
+        prefilter = format.process_as(prefilter, rebuild_partial, "16")
     else:
-        pref = inputClip
+        prefilter = input_clip
 
-    # subpixelInterpolation 3
-    if subpixelInterpolation == 3:
+    super_args = dict(hpad=blksize, vpad=blksize, pel=pel)
+    common_args = dict(search=4, chroma=chroma, truemotion=truemotion)
+    recalculate_args = dict(thsad=thSAD, dct=0, **common_args)
+
+    if subpel == SubPel.NNEDI3:
         import nnedi3_resample as nnrs
 
         cshift = 0.25 if pel == 2 else 0.375
         nnargs = dict(
-            target_width=inputClip.width * pel,
-            target_height=inputClip.height * pel,
+            target_width=input_clip.width * pel,
+            target_height=input_clip.height * pel,
             src_left=cshift,
             src_top=cshift,
             nns=4,
         )
-        pclip = nnrs.nnedi3_resample(pref, **nnargs)
-        if not readGlobals:
-            # if prefilter <= -1, inputClip and pref are the same thing, and
-            # therefore resampling the inputClip seperately is redundant
-            pclip2 = pclip
-            if prefilter >= 0:
-                pclip2 = nnrs.nnedi3_resample(inputClip, **nnargs)
-
-    # Motion vectors search
-    # only use globals if user wants them - global variables are big bad
-    # i now regret this
-    if Globals > 0:
-        vectorDictFunc = globals
+        pclip = pclip2 = nnrs.nnedi3_resample(prefilter, **nnargs)
+        super_search = mvmode.Super(
+            prefilter, chroma=chroma, rfilter=4, pelclip=pclip, **super_args
+        )
+        if globalmode != GlobalMode.READ and resample_input:
+            pclip2 = nnrs.nnedi3_resample(input_clip, **nnargs)
     else:
-        vectorsDict = {}
-        vectorDictFunc = lambda: vectorsDict  # noqa
-    super_args = dict(hpad=blksize, vpad=blksize, pel=pel)
-    common = dict(search=search, chroma=chroma, truemotion=truemotion)
-    recalculate_args = dict(thsad=thSAD, dct=dct, **common)
-
-    if subpixelInterpolation == 3:
-        super_search = mv.Super(pref, chroma=chroma, rfilter=4, pelclip=pclip, **super_args)
-    else:
-        super_search = mv.Super(
-            pref, chroma=chroma, sharp=subpixelInterpolation, rfilter=4, **super_args
+        super_search = mvmode.Super(
+            prefilter, chroma=chroma, sharp=subpel.value, rfilter=4, **super_args
         )
 
-    if not readGlobals:
-        if subpixelInterpolation == 3:
-            super_render = mv.Super(
-                inputClip, levels=1, chroma=planes != [0], pelclip=pclip2, **super_args
+    if GlobalMode != GlobalMode.READ:
+        if subpel == 3:
+            super_render = mvmode.Super(
+                input_clip, levels=1, chroma=planes != [0], pelclip=pclip2, **super_args
             )
-            if RefineMotion:
-                Recalculate = mv.Super(pref, levels=1, chroma=chroma, pelclip=pclip, **super_args)
+            if refine:
+                refine_super = mvmode.Super(
+                    prefilter, levels=1, chroma=chroma, pelclip=pclip, **super_args
+                )
         else:
-            super_render = mv.Super(
-                inputClip, levels=1, chroma=planes != [0], sharp=subpixelInterpolation, **super_args
+            super_render = mvmode.Super(
+                input_clip,
+                levels=1,
+                chroma=planes != [0],
+                sharp=subpel,
+                **super_args,
             )
-            if RefineMotion:
-                Recalculate = mv.Super(
-                    pref, levels=1, chroma=chroma, sharp=subpixelInterpolation, **super_args
+            if refine:
+                refine_super = mvmode.Super(
+                    prefilter, levels=1, chroma=chroma, sharp=subpel, **super_args
                 )
 
         analyse_args = dict(
-            super=super_search, blksize=blksize, overlap=blksize // 2, dct=dct, **common
+            super=super_search, blksize=blksize, overlap=blksize // 2, dct=0, **common_args
         )
-        for i in range(1, tr + 1):
-            i = i * (interlaced + 1)
-            vectorDictFunc()[f"bv{i}"] = mv.Analyse(isb=True, delta=i, **analyse_args)
-            vectorDictFunc()[f"fv{i}"] = mv.Analyse(isb=False, delta=i, **analyse_args)
-            for j in range(RefineMotion):
-                recalculate_args.update(
-                    blksize=blksize / 2 ** j,
-                    blksizev=blksize / 2 ** (j + 1) if interlaced else None,
-                    overlap=blksize / 2 ** (j + 1),
-                    overlapv=blksize / 2 ** (j + 2) if interlaced else None,
-                )
-                vectorDictFunc()[f"bv{i}"] = mv.Recalculate(
-                    Recalculate, vectorDictFunc()[f"bv{i}"], **recalculate_args
-                )
-                vectorDictFunc()[f"fv{i}"] = mv.Recalculate(
-                    Recalculate, vectorDictFunc()[f"fv{i}"], **recalculate_args
+        if mvmode != MVMode.FLOAT_NEW:
+            for i in range(1, tr + 1):
+                vectors[f"bv{i}"] = mvmode.Analyse(isb=True, delta=i, **analyse_args)
+                vectors[f"fv{i}"] = mvmode.Analyse(isb=False, delta=i, **analyse_args)
+                for j in range(refine):
+                    recalculate_args.update(
+                        blksize=blksize / 2 ** j, overlap=blksize / 2 ** (j + 1)
+                    )
+                    vectors[f"bv{i}"] = mvmode.Recalculate(
+                        refine_super, vectors[f"bv{i}"], **recalculate_args
+                    )
+                    vectors[f"fv{i}"] = mvmode.Recalculate(
+                        refine_super, vectors[f"fv{i}"], **recalculate_args
+                    )
+        else:
+            vectors["mvmulti"] = mvmode.Analyse(radius=tr, **analyse_args)
+            for i in range(refine):
+                recalculate_args.update(blksize=blksize / 2 ** i, overlap=blksize / 2 ** (i + 1))
+                vectors["mvmulti"] = mvmode.Recalculate(
+                    refine_super, vectors["mvmulti"], **recalculate_args
                 )
     else:
         super_render = super_search
 
-    if outputGlobals:
+    if globalmode == GlobalMode.WRITEONLY:
         return
 
     # Finally, MDegrain
     degrain_args = dict(
         plane=mvplane,
-        thscd1=thSCD1,
-        thscd2=thSCD2,
+        thscd1=400,
+        thscd2=130,
         thsad=[thSAD, thSADC, thSADC],
-        limit=[limit, limitc, limitc],
+        limit=limit,
     )
-    if mvint:
-        degrain_args.update(thsad=thSAD, thsadc=thSADC, limit=limit, limitc=limitc)
-    vectors = []
-    for i in range(1, tr + 1):
-        i = i * (interlaced + 1)
-        vectors.append(vectorDictFunc()[f"bv{i}"])
-        vectors.append(vectorDictFunc()[f"fv{i}"])
-    output: vs.VideoNode = getattr(mv, f"Degrain{tr}")(
-        mfilter, super_render, *vectors, **degrain_args
-    )
+    if mvmode == MVMode.INTEGER:
+        degrain_args.update(thsad=thSAD, thsadc=thSADC)
+    if mvmode != MVMode.FLOAT_NEW:
+        degrain_vectors = []
+        for i in range(1, tr + 1):
+            degrain_vectors.append(vectors[f"bv{i}"])
+            degrain_vectors.append(vectors[f"fv{i}"])
+        output: vs.VideoNode = mvmode.Degrain(tr)(
+            input_clip, super_render, *degrain_vectors, **degrain_args
+        )
+    else:
+        output = mvmode.Degrain()(input_clip, super_render, vectors["mvmulti"], **degrain_args)
 
     output = format.make_similar(output, src)
 
-    if freqMerge and prefilter:
-        if slocation is None:
-            slocation = _slocation
-        if isinstance(freqMerge, vs.VideoNode):
-            output = merge_frequency(freqMerge, output, slocation=slocation)
+    if freq_merge:
+        if isinstance(freq_merge, vs.VideoNode):
+            output = merge_frequency(freq_merge, output)
         else:
-            prefilter = format.make_similar(prefilter, output)
-            output = merge_frequency(extract_frequency(prefilter), output, slocation=slocation)
-
-    if interlaced:
-        output = core.std.DoubleWeave(output, tff=tff)[::2]
+            output = merge_frequency(src, output)
 
     if contrasharp:
-        if isinstance(contrasharp, bool):
-            output = ContraSharpening(output, contraClip, planes=planes)
+        if isinstance(contrasharp, vs.VideoNode):
+            output = ContraSharpening(output, contrasharp, planes=planes)
         else:
-            output = LSFmod(
-                output,
-                strength=contrasharp,
-                inputClip=contraClip,
-                Lmode=0,
-                soothe=False,
-                defaults="slow",
-            )
+            output = ContraSharpening(output, src, planes=planes)
 
     return output
 
@@ -408,7 +375,7 @@ def BM3D(
     **kwargs,
 ):
     from . import format
-    from vsutil.clips import get_y, split
+    from vsutil.clips import get_y, split, join
     import sys
 
     input_original = src
@@ -438,21 +405,6 @@ def BM3D(
         profile = [profile, profile]
     elif profile[1] is None:
         profile = [profile[0], profile[0]]
-
-    if radius is not None and "radius1" in kwargs:
-        print("BM3D: WARN --> use radius=[radius1, radius2] instead!", file=sys.stderr)
-        radius = kwargs["radius1"]
-
-    if profile is not None and "profile1" in kwargs:
-        print("BM3D: WARN --> use profile=[profile1, profile2] instead!", file=sys.stderr)
-        radius = kwargs["profile1"]
-
-    set_kwargs = set(kwargs.keys())
-    if set_kwargs - set(["radius1", "profile1"]):
-        print(
-            "BM3D: WARN --> recieved extra args:"
-            f" {', '.join(set_kwargs - set(['radius1', 'profile1']))}, ignoring."
-        )
 
     if isinstance(radius, list) and radius[1] is None:
         radius = [radius[0], radius[0]]
@@ -555,7 +507,8 @@ def BM3D(
         else:
             basic = core.bm3dcuda.BM3D(
                 clips["src"], sigma=sigma[0], radius=radius[0], **cudaargs[0]
-            ).bm3d.VAggregate(radius[0], 1)
+            )
+            basic = core.bm3d.VAggregate(basic, radius[0], 1) if radius[0] else basic
     else:
         basic = clips["ref"] or clips["src"]
 
@@ -574,7 +527,9 @@ def BM3D(
         else:
             final = core.bm3dcuda.BM3D(
                 clips["src"], ref=final, sigma=sigma[1], radius=radius[1], **cudaargs[1]
-            ).bm3d.VAggregate(radius[1], 1)
+            )
+
+            final = core.bm3d.VAggregate(final, radius[1], 1) if radius[1] else final
 
     out = core.bm3d.OPP2RGB(final, 1) if not is_gray(final) else final
     out = format.make_similar(
@@ -598,30 +553,6 @@ def BM3D(
                     )
 
     return out
-
-
-def decheckerboard(
-    src: vs.VideoNode,
-    mask: Optional[vs.VideoNode] = None,
-    slocation: List[float] = [0.0, 0, 0.85, 0, 0.9, 512, 1.0, 512],
-) -> vs.VideoNode:
-    from .frequencies import _dfttest_args
-    import kagefunc as kgf
-    from vsutil.func import iterate
-    from vsutil.clips import get_y, split, join
-
-    clip = src
-    if src.format.color_family != vs.GRAY:
-        clip = get_y(src)
-    clip = core.dfttest.DFTTest(clip, slocation=slocation, **_dfttest_args)
-    if not mask:
-        mask = kgf.retinex_edgemask(clip)
-        mask = iterate(mask, core.std.Inflate, 2)
-    knlm = core.knlm.KNLMeansCL(clip, d=0, a=5, s=1, h=0.45)
-    clip = core.std.MaskedMerge(knlm, clip, mask)
-    if src.format.color_family != vs.GRAY:
-        clip = join([clip] + split(src)[1:], src.format.color_family)
-    return clip
 
 
 CMDE = CMDegrain

@@ -4,7 +4,9 @@ import vapoursynth as vs
 core = vs.core
 
 
-def get_format(clip: Optional[vs.VideoNode] = None, formatstr: Optional[str] = None) -> vs.Format:
+def get_format(
+    clip: Optional[vs.VideoNode] = None, formatstr: Optional[str] = None
+) -> vs.VideoFormat:
     import re
 
     if clip is None and formatstr is None:
@@ -56,10 +58,13 @@ def get_format(clip: Optional[vs.VideoNode] = None, formatstr: Optional[str] = N
         if match.group(8)
         else 0
     )
-    if formatstr == "compatbgr32":
-        return vs.COMPATBGR32
-    elif formatstr == "compatyuy2":
-        return vs.COMPATYUY2
+    if formatstr in ["compatbgr32", "compatyuy2"]:
+        if vs.__api_version__.api_major >= 4:
+            raise ValueError("Compat formats were removed with APIv4")
+        elif formatstr == "compatbgr32":
+            return vs.COMPATBGR32
+        else:
+            return vs.COMPATYUY2
     else:
         if m_colorSampling:
             if m_colorSampling == "gray" or m_colorSampling == "y":
@@ -88,6 +93,8 @@ def get_format(clip: Optional[vs.VideoNode] = None, formatstr: Optional[str] = N
                 if m_yuv_ycocg == "yuv" or m_yuv_ycocg == "ycbcr":
                     colorFamily = vs.YUV
                 elif m_yuv_ycocg == "ycocg":
+                    if vs.__api_version__.api_major >= 4:
+                        raise ValueError("YCOCG Color Family was removed with APIv4")
                     colorFamily = vs.YCOCG
         if m_float_bits_per_sample:
             sampleType = vs.FLOAT
@@ -101,7 +108,7 @@ def get_format(clip: Optional[vs.VideoNode] = None, formatstr: Optional[str] = N
             if m_bits_per_sample < 8:
                 raise ValueError("bitdepth too low (8 minimum)")
             elif m_bits_per_sample > 32:
-                raise ValueError("bitdepthtoo great (32 maximum)")
+                raise ValueError("bitdepth too great (32 maximum)")
             bits_per_sample = m_bits_per_sample
 
     if clip:
@@ -143,13 +150,13 @@ def guess_matrix(clip: vs.VideoNode) -> str:
     return matrix
 
 
-def from_string(formatstr: str) -> vs.Format:
+def from_string(formatstr: str) -> vs.VideoFormat:
     return get_format(None, formatstr)
 
 
 def _set_format_internal(
     clip: vs.VideoNode,
-    newformat: vs.Format,
+    newformat: vs.VideoFormat,
     resizer: Optional[Callable] = None,
     chroma_doubler: Union[Callable, str, bool] = False,
     **resizer_args,
@@ -339,14 +346,14 @@ def make_similar(
 
 def make_similar_mask(mask: vs.VideoNode, ref: vs.VideoNode) -> vs.VideoNode:
     if mask.format.color_family != vs.GRAY:
-        raise ValueError("makeSimilarMask is intended for GRAY mask clips")
+        raise ValueError("make_similar_mask is intended for GRAY mask clips")
     return _set_format_internal(mask, get_format(ref, "gray"))
 
 
 def process_as(
     clip: vs.VideoNode,
     function: Callable[[vs.VideoNode], vs.VideoNode],
-    format: Union[str, vs.Format, vs.VideoNode],
+    format: Union[str, vs.VideoFormat, vs.VideoNode],
     resizer: Optional[Callable] = None,
     chroma_doubler: Union[Callable, bool] = False,
     **resizer_args,
