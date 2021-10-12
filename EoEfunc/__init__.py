@@ -1,6 +1,6 @@
 import vapoursynth as vs
 
-if vs.__api_version__.api_major <= 4:
+if vs.__api_version__.api_major < 4:
     vs.VideoFormat = vs.Format
 else:
     vs.YCOCG = None
