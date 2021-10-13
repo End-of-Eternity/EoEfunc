@@ -58,11 +58,17 @@ def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
 
     print(file=sys.stderr)
 
+    def decode(value: Union[bytes, str]) -> str:
+        if vs.__api_version__.api_major >= 4:
+            return value
+        else:
+            return value.decode("utf-8")
+
     if not ("core" in env and isinstance(env["core"], vs._CoreProxy)):
         env["core"] = vs.core
 
     if "max_cache_size" in env:
-        env["core"].max_cache_size = int(env["max_cache_size"].decode("utf-8")) * 1024
+        env["core"].max_cache_size = int(decode(env["max_cache_size"])) * 1024
         print(
             f"Vapoursynth: INFO --> Allocated max {env['core'].max_cache_size/1024}GiB of RAM",
             file=sys.stderr,
@@ -82,7 +88,7 @@ def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
             )
 
     if "num_threads" in env:
-        env["core"].num_threads = int(env["num_threads"].decode("utf-8"))
+        env["core"].num_threads = int(decode(env["num_threads"]))
         print(f"Vapoursynth: INFO --> Using {env['core'].num_threads} threads", file=sys.stderr)
     else:
         if "DEFAULT_THREADS" in env:
@@ -100,7 +106,7 @@ def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
 
     env["use_hwaccel"] = True
     if "GPU" in env:
-        decoded_GPU = env["GPU"].decode("utf-8")
+        decoded_GPU = decode(env["GPU"])
         if decoded_GPU.lower() in ["false", "no"]:
             env["use_hwaccel"] = False
         else:
@@ -124,7 +130,7 @@ def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
         else:
             raise ValueError("No DEFAULT_PATH set, and no src_path was specified.")
     else:
-        env["src_path"] = env["src_path"].decode("utf-8")
+        env["src_path"] = decode(env["src_path"])
 
     print(f"Vapoursynth: INFO --> Beginning job - (\"{env['src_path']}\")", file=sys.stderr)
     return env
