@@ -1,33 +1,34 @@
 from functools import partial
 import sys
 from typing import Callable, Dict, List, Optional, Union
-from enum import Enum
+from enum import IntEnum, Enum
+from torch import warnings
 import vapoursynth as vs
 
 core = vs.core
 
 
-class GlobalMode(Enum):
+class GlobalMode(IntEnum):
     IGNORE = 0
     READ = 1
     WRITE = 2
     WRITEONLY = 3
 
 
-class Pel(Enum):
+class Pel(IntEnum):
     FULL = 1
     HALF = 2
     QUARTER = 4
 
 
-class SubPel(Enum):
+class SubPel(IntEnum):
     BILINEAR = 0
     BICUBIC = 1
     WIENER = 2
     NNEDI3 = 3
 
 
-class Prefilter(Enum):
+class Prefilter(IntEnum):
     LIGHT = 0
     MEDIUM = 1
     STRONG = 2
@@ -77,6 +78,20 @@ class MVMode(Enum):
 
 # accessable outside of denoise.py without being pepegastoopid
 global_mv_vectors: Dict[str, Optional[Union[vs.VideoNode, MVMode]]] = {"MVMode": None}
+
+
+def prefilter_dfttest(clip: vs.VideoNode):
+    from vsutil import get_y, scale_value
+
+    peak = 1 if clip.format.sample_type == vs.FLOAT else 2 << clip.format.bits_per_sample
+    i = scale_value(16, 8, clip.format.bits_per_sample)
+    j = scale_value(75, 8, clip.format.bits_per_sample)
+    expr = f"x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?"
+    return core.std.MaskedMerge(
+        clip.dfttest.DFTTest(tbsize=1, slocation=[0.0, 4.0, 0.2, 9.0, 1.0, 15.0]),
+        clip,
+        get_y(clip).std.Expr(expr=[expr]),
+    )
 
 
 def CMDegrain(
@@ -207,15 +222,7 @@ def CMDegrain(
         elif isinstance(prefilter, vs.VideoNode):
             prefilter = format.make_similar(prefilter, input_clip)
         elif prefilter == Prefilter.DFTTEST:
-            peak = 1 if clip.format.sample_type == vs.FLOAT else 2 << clip.format.bits_per_sample
-            i = scale_value(16, 8, clip.format.bits_per_sample)
-            j = scale_value(75, 8, clip.format.bits_per_sample)
-            expr = f"x {i} < {peak} x {j} > 0 {peak} x {i} - {peak} {j} {i} - / * - ? ?"
-            return core.std.MaskedMerge(
-                clip.dfttest.DFTTest(tbsize=1, slocation=[0.0, 4.0, 0.2, 9.0, 1.0, 15.0]),
-                clip,
-                get_y(clip).std.Expr(expr=[expr]),
-            )
+            clip = prefilter_dfttest(clip)
         elif prefilter == Prefilter.KNLMEANS:
             knlm_args = dict(d=1, a=1, h=7)
             if chroma:
@@ -556,3 +563,8 @@ def BM3D(
 
 
 CMDE = CMDegrain
+
+
+def prefilter3(clip):
+    warnings.warn("prefilter3: deprecated, use prefilter_dfttest instead")
+    return prefilter_dfttest(clip)
