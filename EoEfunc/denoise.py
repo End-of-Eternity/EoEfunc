@@ -2,7 +2,7 @@ from functools import partial
 import sys
 from typing import Callable, Dict, List, Optional, Union
 from enum import IntEnum, Enum
-from torch import warnings
+import warnings
 import vapoursynth as vs
 
 core = vs.core
