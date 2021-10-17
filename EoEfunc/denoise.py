@@ -114,7 +114,7 @@ def CMDegrain(
     from . import format
     from .frequencies import merge_frequency
     from havsfunc import MinBlur, DitherLumaRebuild
-    from vsutil import scale_value, get_y
+    from vsutil import scale_value
 
     input_clip = src
 
