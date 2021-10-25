@@ -222,7 +222,7 @@ def CMDegrain(
         elif isinstance(prefilter, vs.VideoNode):
             prefilter = format.make_similar(prefilter, input_clip)
         elif prefilter == Prefilter.DFTTEST:
-            clip = prefilter_dfttest(clip)
+            prefilter = prefilter_dfttest(input_clip)
         elif prefilter == Prefilter.KNLMEANS:
             knlm_args = dict(d=1, a=1, h=7)
             if chroma:
@@ -451,7 +451,9 @@ def BM3D(
         return core.bm3d.RGB2OPP(v, 1) if not is_gray(v) else v
 
     if CUDA[0] and pre is not None:
-        raise print("BM3D: WARN --> BM3DCUDA doesn't accept a pre for the basic estimate, ignoring")
+        warnings.warn(
+            "BM3D: WARN --> BM3DCUDA doesn't accept a pre for the basic estimate, ignoring"
+        )
 
     clips = {k: to_opp(v) for k, v in dict(src=src, pre=pre, ref=ref).items() if v is not None}
 
