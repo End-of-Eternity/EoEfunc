@@ -14,7 +14,7 @@ import vapoursynth as vs
 core = vs.core
 
 
-def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
+def setup_environment(env: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Utility function for setting variables when using the Start-BatchJudasEncode script
 
     Will fall back to DEFAULTS where Start-BatchJudasEncode parameters are missing
@@ -55,6 +55,7 @@ def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
         Thrown when no src_path or DEFAULT_PATH is found
     """
     import sys
+    import __main__
 
     print(file=sys.stderr)
 
@@ -63,6 +64,8 @@ def setup_environment(env: Dict[str, Any]) -> Dict[str, Any]:
             return value
         else:
             return value.decode("utf-8")
+
+    env = env or __main__.globals()
 
     if not ("core" in env and isinstance(env["core"], vs._CoreProxy)):
         env["core"] = vs.core
