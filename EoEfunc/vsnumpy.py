@@ -1,4 +1,4 @@
-from typing import Any, Callable, Mapping, Optional, Protocol, Sequence, TypeVar, Union, overload
+from typing import Any, Callable, Optional, Protocol, Sequence, Union, overload
 import vapoursynth as vs
 import numpy as np
 
@@ -8,27 +8,25 @@ core = vs.core
 
 # region: types
 
-T = TypeVar("T")
-SingleAndSequence = Union[T, Sequence[T]]
 if vsapi_below_4:
     FramePropsValue = Union[
-        SingleAndSequence[int],
-        SingleAndSequence[float],
-        SingleAndSequence[str],
-        SingleAndSequence[vs.VideoNode],
-        SingleAndSequence[vs.VideoFrame],
-        SingleAndSequence[Callable[..., Any]],
+        Union[int, Sequence[int]],
+        Union[float, Sequence[float]],
+        Union[str, Sequence[str]],
+        Union[vs.VideoNode, Sequence[vs.VideoNode]],
+        Union[vs.VideoFrame, Sequence[vs.VideoFrame]],
+        Union[Callable[..., Any], Sequence[Callable[..., Any]]],
     ]
 else:
     FramePropsValue = Union[
-        SingleAndSequence[int],
-        SingleAndSequence[float],
-        SingleAndSequence[str],
-        SingleAndSequence[vs.VideoNode],
-        SingleAndSequence[vs.VideoFrame],
-        SingleAndSequence[vs.AudioNode],
-        SingleAndSequence[vs.AudioFrame],
-        SingleAndSequence[Callable[..., Any]],
+        Union[int, Sequence[int]],
+        Union[float, Sequence[float]],
+        Union[str, Sequence[str]],
+        Union[vs.VideoNode, Sequence[vs.VideoNode]],
+        Union[vs.VideoFrame, Sequence[vs.VideoFrame]],
+        Union[vs.AudioNode, Sequence[vs.AudioNode]],
+        Union[vs.AudioFrame, Sequence[vs.AudioFrame]],
+        Union[Callable[..., Any], Sequence[Callable[..., Any]]],
     ]
 
 # endregion: types
@@ -38,7 +36,7 @@ class VideoFrameArray:
     def __init__(self, frame: vs.VideoFrame) -> None:
         self.planes: list[np.ndarray] = VideoFrameArray._construct_arrays(frame)
         self.format: vs.VideoFormat = frame.format
-        self.props: Mapping[str, FramePropsValue] = dict(frame.props)
+        self.props: dict[str, FramePropsValue] = dict(frame.props)
 
     @property
     def width(self):
