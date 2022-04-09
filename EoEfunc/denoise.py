@@ -274,7 +274,7 @@ def CMDegrain(
             prefilter, chroma=chroma, sharp=subpel.value, rfilter=4, **super_args
         )
 
-    if GlobalMode != GlobalMode.READ:
+    if globalmode != GlobalMode.READ:
         if subpel == 3:
             super_render = mvmode.Super(
                 input_clip, levels=1, chroma=planes != [0], pelclip=pclip2, **super_args

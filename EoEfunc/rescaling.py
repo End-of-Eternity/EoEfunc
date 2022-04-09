@@ -32,7 +32,7 @@ def rescale(
         kgf._descale_luma(set_format(planes[0], "s"), width, height, kernel, taps, b, c), planes[0]
     )
 
-    planes[0] = nnedi3_rpow2.nnedi3_rpow2(planes[0], rfactor=2)
+    planes[0] = nnedi3_rpow2.nnedi3cl_rpow2(planes[0], rfactor=2)
     planes[0] = core.resize.Spline36(planes[0], src.width, src.height)
 
     if only_luma and not (mask_detail or get_mask):
