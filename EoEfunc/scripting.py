@@ -140,7 +140,7 @@ def setup_environment(env: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
 
 def debug_output(
-    clip: vs.VideoNode,
+    clip: Union[vs.VideoNode, str],
     text: Optional[str] = None,
     alignment: Optional[int] = None,
     fft: bool = False,
@@ -161,8 +161,8 @@ def debug_output(
 
     Parameters
     ----------
-    clip: vs.VideoNode
-        Input clip
+    clip: Union[vs.VideoNode, str]
+        Input clip, or path to a source
     text: Optional[str] = None
         Clip name, for text.Text
     alignment: Optional[int] = None
@@ -197,6 +197,9 @@ def debug_output(
     from .misc import FFTSpectrum
     from .format import set_format, _to_444Presets
     from vsutil import split
+
+    if isinstance(clip, str):
+        clip = core.lsmas.LWLibavSource(clip)
 
     def _output(clip: vs.VideoNode, text: str):
         nonlocal alignment, frame_num, frame_props
