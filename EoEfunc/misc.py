@@ -32,7 +32,7 @@ def unfuck_edges(
     return core.std.MaskedMerge(fucked, notFucked, mask, planes=0)
 
 
-def ContraSharpening(denoised, original, radius=None, rep=13, planes=None):
+def ContraSharpening(denoised, original, radius=1, rep=13, planes=None):
     import havsfunc as haf
 
     cs = haf.ContraSharpening(denoised, original, radius, rep, planes)
