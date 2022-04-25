@@ -246,7 +246,7 @@ def CMDegrain(
         rebuild_partial = partial(DitherLumaRebuild, s0=1.0, c=0.0625, chroma=chroma)
         prefilter = format.process_as(prefilter, rebuild_partial, "16")
     else:
-        prefilter = input_clip
+        prefilter = prefilter or input_clip
 
     super_args = dict(hpad=blksize, vpad=blksize, pel=pel)
     common_args = dict(search=4, chroma=chroma, truemotion=truemotion)
