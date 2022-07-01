@@ -1,18 +1,21 @@
 import vapoursynth as vs
+from typing import Optional, Callable
 
 core = vs.core
 
 
 def rescale(
     src: vs.VideoNode,
-    width: int = None,
-    height: int = 0,
+    width: int,
+    height: int,
     kernel: str = "bilinear",
     taps: int = 4,
     b: float = 1 / 3,
     c: float = 1 / 3,
+    smooth: float = 0,
+    process: Optional[Callable[[vs.VideoNode], vs.VideoNode]] = None,
     mask_detail: bool = False,
-    rescale_threshold: float = 0.015,
+    rescale_threshold: float = 0.03,
     get_mask: bool = False,
     **mask_args,
 ) -> vs.VideoNode:
@@ -28,9 +31,18 @@ def rescale(
     only_luma = src.format.num_planes == 1
 
     planes = split(src)
+    src_luma = planes[0]
+
     planes[0] = descaled = make_similar(
         kgf._descale_luma(set_format(planes[0], "s"), width, height, kernel, taps, b, c), planes[0]
     )
+
+    if smooth:
+        smoothed = core.resize.Spline36(src_luma, width, height)
+        planes[0] = core.std.Merge(planes[0], smoothed, smooth)
+
+    if process:
+        planes[0] = process(planes[0])
 
     planes[0] = nnedi3_rpow2.nnedi3cl_rpow2(planes[0], rfactor=2)
     planes[0] = core.resize.Spline36(planes[0], src.width, src.height)
@@ -40,9 +52,9 @@ def rescale(
 
     if mask_detail or get_mask:
         upscaled = fvf.Resize(descaled, src.width, src.height, kernel=kernel, taps=taps, a1=b, a2=c)
-        mask = get_descale_mask(get_y(src), upscaled, rescale_threshold, **mask_args)
+        mask = get_descale_mask(src_luma, upscaled, rescale_threshold, **mask_args)
         if mask_detail:
-            planes[0] = core.std.MaskedMerge(planes[0], get_y(src), mask)
+            planes[0] = core.std.MaskedMerge(planes[0], src_luma, mask)
     scaled = join(planes)
     scaled = core.resize.Point(scaled, format=src.format)
     return (scaled, make_similar_mask(mask, scaled)) if get_mask else scaled
@@ -54,7 +66,7 @@ def get_descale_mask(
     threshold: float = 0.015,
     maximum: int = 2,
     inflate: int = 2,
-    morpho: bool = True,
+    morpho: bool = False,
     msize: int = 5,
     mshape: int = 0,
 ) -> vs.VideoNode:
