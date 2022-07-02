@@ -16,11 +16,11 @@ def rescale(
     process: Optional[Callable[[vs.VideoNode], vs.VideoNode]] = None,
     mask_detail: bool = False,
     rescale_threshold: float = 0.03,
-    get_mask: bool = False,
+    get_mask: bool = True,
     **mask_args,
 ) -> vs.VideoNode:
     from .format import set_format, make_similar, make_similar_mask
-    from vsutil import split, join, get_y
+    from vsutil import split, join
     import kagefunc as kgf
     import fvsfunc as fvf
     import nnedi3_rpow2
