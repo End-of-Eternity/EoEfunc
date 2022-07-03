@@ -1,5 +1,7 @@
 import vapoursynth as vs
-from typing import Optional, Callable
+from typing import Literal, Optional, Callable, Union, Tuple
+from functools import partial
+import warnings
 
 core = vs.core
 
@@ -8,21 +10,23 @@ def rescale(
     src: vs.VideoNode,
     width: int,
     height: int,
-    kernel: str = "bilinear",
+    kernel: str = "catmull",
     taps: int = 4,
-    b: float = 1 / 3,
-    c: float = 1 / 3,
+    b: Optional[float] = None,
+    c: Optional[float] = None,
     smooth: float = 0,
     process: Optional[Callable[[vs.VideoNode], vs.VideoNode]] = None,
     mask_detail: bool = False,
     rescale_threshold: float = 0.03,
     get_mask: bool = True,
+    src_width: Optional[float] = None,
+    src_height: Optional[float] = None,
+    src_top: Optional[float] = None,
+    src_left: Optional[float] = None,
     **mask_args,
 ) -> vs.VideoNode:
-    from .format import set_format, make_similar, make_similar_mask
+    from .format import process_as, make_similar_mask
     from vsutil import split, join
-    import kagefunc as kgf
-    import fvsfunc as fvf
     import nnedi3_rpow2
 
     if not height:
@@ -33,9 +37,18 @@ def rescale(
     planes = split(src)
     src_luma = planes[0]
 
-    planes[0] = descaled = make_similar(
-        kgf._descale_luma(set_format(planes[0], "s"), width, height, kernel, taps, b, c), planes[0]
+    descaler, resizer = get_scalers(kernel, taps, b, c)
+
+    descale_args = dict(
+        width=width,
+        height=height,
+        src_width=src_width,
+        src_height=src_height,
+        src_top=src_top,
+        src_left=src_left,
     )
+
+    planes[0] = descaled = process_as(src_luma, partial(descaler, **descale_args), "s")
 
     if smooth:
         smoothed = core.resize.Spline36(src_luma, width, height)
@@ -51,13 +64,56 @@ def rescale(
         return planes[0]
 
     if mask_detail or get_mask:
-        upscaled = fvf.Resize(descaled, src.width, src.height, kernel=kernel, taps=taps, a1=b, a2=c)
+        upscaled = resizer(descaled, src.width, src.height)
         mask = get_descale_mask(src_luma, upscaled, rescale_threshold, **mask_args)
         if mask_detail:
             planes[0] = core.std.MaskedMerge(planes[0], src_luma, mask)
     scaled = join(planes)
     scaled = core.resize.Point(scaled, format=src.format)
     return (scaled, make_similar_mask(mask, scaled)) if get_mask else scaled
+
+
+def get_bicubic_scalers(b, c):
+    return (
+        partial(core.descale.Debicubic, b=b, c=c),
+        partial(core.resize.Bicubic, filter_param_a=b, filter_param_b=c),
+    )
+
+
+Scaler = Callable[..., vs.VideoNode]
+
+scalers = {
+    "bilinear": lambda **_: (core.descale.Debilinear, core.resize.Bilinear),
+    "spline16": lambda **_: (core.descale.Despline16, core.resize.Spline16),
+    "spline36": lambda **_: (core.descale.Despline36, core.resize.Spline36),
+    "bicubic": lambda b, c, **_: get_bicubic_scalers(b or 0, c or 0.5),
+    "catmull": lambda **_: get_bicubic_scalers(0, 0.5),
+    "mitchell": lambda **_: get_bicubic_scalers(1 / 3, 1 / 3),
+    "c-spline": lambda **_: get_bicubic_scalers(0, 1),
+    "lanczos": lambda taps, **_: (
+        partial(core.descale.Delanczos, taps=taps),
+        partial(core.resize.Lanczos, filter_param_a=taps),
+    ),
+}
+
+
+def get_scalers(
+    kernel: str, taps: int, b: Optional[float], c: Optional[float]
+) -> Tuple[Scaler, Scaler]:
+    kernel = "catmull" if kernel == "catmull_rom" else kernel
+    if kernel in ["catmull", "mitchell", "c-spline"] and (b is not None or c is not None):
+        warnings.warn("b and c are ignored for custom bicubic kernels")
+    if kernel[:-1] == "lanczos":
+        kernel = "lanczos"
+        try:
+            taps = int(kernel[-1])
+        except ValueError:
+            raise ValueError("rescale: invalid lanczos kernel taps")
+
+    if kernel not in scalers:
+        raise ValueError("rescale: invalid kernel")
+
+    return scalers[kernel](b=b, c=c, taps=taps)
 
 
 def get_descale_mask(
