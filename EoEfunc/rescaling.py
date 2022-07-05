@@ -38,6 +38,8 @@ def rescale(
     src_luma = planes[0]
 
     descaler, resizer = get_scalers(kernel, taps, b, c)
+    if smooth == 1:
+        descaler = resizer
 
     descale_args = dict(
         width=width,
@@ -50,7 +52,7 @@ def rescale(
 
     planes[0] = descaled = process_as(src_luma, partial(descaler, **descale_args), "s")
 
-    if smooth:
+    if smooth and smooth != 1:
         smoothed = core.resize.Spline36(src_luma, width, height)
         planes[0] = core.std.Merge(planes[0], smoothed, smooth)
 
