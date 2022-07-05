@@ -1,5 +1,5 @@
 import vapoursynth as vs
-from typing import Literal, Optional, Callable, Union, Tuple
+from typing import Optional, Callable, Tuple
 from functools import partial
 import warnings
 
@@ -104,9 +104,9 @@ def get_scalers(
     if kernel in ["catmull", "mitchell", "c-spline"] and (b is not None or c is not None):
         warnings.warn("b and c are ignored for custom bicubic kernels")
     if kernel[:-1] == "lanczos":
-        kernel = "lanczos"
         try:
             taps = int(kernel[-1])
+            kernel = "lanczos"
         except ValueError:
             raise ValueError("rescale: invalid lanczos kernel taps")
 
