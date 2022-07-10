@@ -423,6 +423,8 @@ def BM3D(
 
     if not (sigma[0][1] + sigma[0][2] + sigma[1][1] + sigma[1][2]):
         src = get_y(src)
+        if ref:
+            ref = get_y(ref)
 
     if src.format.color_family == vs.GRAY:
         chroma = False
