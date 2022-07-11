@@ -379,6 +379,7 @@ def BM3D(
     chroma: bool = True,
     device_id: int = 0,
     fast: bool = True,
+    opp: bool = True,
     **kwargs,
 ):
     from . import format
@@ -450,7 +451,7 @@ def BM3D(
             filter_param_b=0.5,
             matrix_in_s=matrix,
         )
-        return core.bm3d.RGB2OPP(v, 1) if not is_gray(v) else v
+        return core.bm3d.RGB2OPP(v, 1) if not is_gray(v) or not opp else v
 
     if CUDA[0] and pre is not None:
         warnings.warn(
@@ -542,7 +543,7 @@ def BM3D(
 
             final = core.bm3d.VAggregate(final, radius[1], 1) if radius[1] else final
 
-    out = core.bm3d.OPP2RGB(final, 1) if not is_gray(final) else final
+    out = core.bm3d.OPP2RGB(final, 1) if not is_gray(final) or not opp else final
     out = format.make_similar(
         out,
         src,
