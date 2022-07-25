@@ -1,5 +1,4 @@
 from functools import partial
-import sys
 from typing import Callable, Dict, List, Optional, Union
 from enum import IntEnum, Enum
 import warnings
@@ -175,29 +174,31 @@ def CMDegrain(
     if refine > 6:
         raise ValueError("refine > 6 is not supported")
     elif highprecision or refine == 6 or tr > 3:
+        warnings.warn(
+            "tr > 3 or refine == 6, attempting to use floating point mvtools (may be slower). Set"
+            " highprecision to True to disable warning."
+        )
+        msg = (
+            "Please build"
+            " https://github.com/IFeelBloated/vapoursynth-mvtools-sf from master yourself or"
+            " alternatively use my own build (windows only):"
+            " https://blog.eoe.codes/assets/EoEfunc/libvapoursynth-mvtools-sf.7z"
+        )
+        if not hasattr(core, "mvsf"):
+            raise ImportError("Missing floating point mvtools. " + msg)
+        if not hasattr(core.mvsf, "Degrain"):
+            raise ImportError(
+                "tr >= 3 or refine = 6 can't be used without a newer build of floating point"
+                " mvtools. "
+                + msg
+            )
         input_clip = format.set(input_clip, "s")
         mvmode = MVMode.FLOAT_NEW
-        if not hasattr(core, "mvsf"):
-            raise ImportError(
-                "Missing mvsf. Please grab https://github.com/IFeelBloated/vapoursynth-mvtools-sf"
-            )
-        if not hasattr(core.mvsf, "Degrain"):
-            if tr > 24:
-                raise ImportError(
-                    "If you're mad enough to want to use tr > 24, you're going to need to build the"
-                    " master branch of https://github.com/IFeelBloated/vapoursynth-mvtools-sf"
-                )
-            print(
-                "CMDegrain: Using older mvsf. Building"
-                " https://github.com/IFeelBloated/vapoursynth-mvtools-sf from master is"
-                " recommended",
-                file=sys.stderr,
-            )
-            mvmode = MVMode.FLOAT_OLD
     else:
         if not hasattr(core, "mv"):
             raise ImportError(
-                "Missing mvtools. Please grab https://github.com/dubhater/vapoursynth-mvtools"
+                "Missing integer mvtools. Please grab"
+                " https://github.com/dubhater/vapoursynth-mvtools"
             )
         mvmode = MVMode.INTEGER
 
