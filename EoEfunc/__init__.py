@@ -5,7 +5,7 @@ if vs.__api_version__.api_major < 4:
 else:
     vs.YCOCG = None
 
-from . import format, frequencies, denoise, rescaling, misc, util, scripting, vsnumpy  # noqa
+from . import aa, format, frequencies, denoise, rescaling, misc, util, scripting, vsnumpy  # noqa
 
 try:
     from ._metadata import __version__, __author__
