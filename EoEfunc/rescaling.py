@@ -88,6 +88,7 @@ scalers = {
     "bilinear": lambda **_: (core.descale.Debilinear, core.resize.Bilinear),
     "spline16": lambda **_: (core.descale.Despline16, core.resize.Spline16),
     "spline36": lambda **_: (core.descale.Despline36, core.resize.Spline36),
+    "spline64": lambda **_: (core.descale.Despline64, core.resize.Spline64),
     "bicubic": lambda b, c, **_: get_bicubic_scalers(b or 0, c or 0.5),
     "catmull": lambda **_: get_bicubic_scalers(0, 0.5),
     "mitchell": lambda **_: get_bicubic_scalers(1 / 3, 1 / 3),

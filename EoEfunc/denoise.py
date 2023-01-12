@@ -306,7 +306,7 @@ def CMDegrain(
                 vectors[f"fv{i}"] = mvmode.Analyse(isb=False, delta=i, **analyse_args)
                 for j in range(refine):
                     recalculate_args.update(
-                        blksize=blksize / 2 ** j, overlap=blksize / 2 ** (j + 1)
+                        blksize=blksize / 2**j, overlap=blksize / 2 ** (j + 1)
                     )
                     vectors[f"bv{i}"] = mvmode.Recalculate(
                         refine_super, vectors[f"bv{i}"], **recalculate_args
@@ -317,7 +317,7 @@ def CMDegrain(
         else:
             vectors["mvmulti"] = mvmode.Analyse(radius=tr, **analyse_args)
             for i in range(refine):
-                recalculate_args.update(blksize=blksize / 2 ** i, overlap=blksize / 2 ** (i + 1))
+                recalculate_args.update(blksize=blksize / 2**i, overlap=blksize / 2 ** (i + 1))
                 vectors["mvmulti"] = mvmode.Recalculate(
                     refine_super, vectors["mvmulti"], **recalculate_args
                 )
