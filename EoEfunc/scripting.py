@@ -254,3 +254,92 @@ def debug_output(
             _output(clip_planes[i], f"{text} - Plane {i}" if text else text)
     else:
         _output(clip, text)
+
+
+def debug_output_multi(
+    include: Optional[List[vs.VideoNode]] = None,
+    exclude: Optional[List[vs.VideoNode]] = None,
+    text: Union[bool, int] = True,
+    frame_props: Union[bool, int] = False,
+    frame_num: Union[bool, int] = False,
+    src_fft: Optional[bool] = None,
+    depth: int = 1,
+):
+    import inspect
+    from .misc import FFTSpectrum
+
+    stack = inspect.stack()
+    try:
+        globals_dict = stack[depth][0].f_globals
+    finally:
+        del stack
+
+    if include and exclude:
+        raise ValueError("Can't use include and exclude together")
+
+    clips: Dict[str, vs.VideoNode] = {}
+    for k, v in globals_dict.items():
+        if (
+            isinstance(v, vs.VideoNode)
+            and (include is None or (include is not None and v in include))
+            and (exclude is None or (exclude is not None and v not in exclude))
+            and k[0] != "_"
+            and k not in {"final"}
+        ):
+            clips[k] = v
+
+    if include is not None:
+        clips = sorted(clips.items(), key=lambda pair: include.index(pair[0]))
+
+    text = 7 if text is True else text
+    frame_props = 9 if frame_props is True else frame_props
+    frame_num = 8 if frame_num is True else frame_num
+
+    texts = [v for v in [text, frame_props, frame_num] if v]
+    if len(texts) != len(set(texts)):
+        raise ValueError("Conflicting text locations")
+
+    if src_fft is None:
+        if not clips.keys() - {"src", "bbmod", "edgefix"} and "src" in clips.keys():
+            src_fft = True
+        else:
+            src_fft = False
+
+    if src_fft:
+        clips["FFT - src"] = FFTSpectrum(clips["src"])
+
+    def _output(clip: vs.VideoNode, name: Optional[str] = None):
+        output_indexes = [0] + list(vs.get_outputs().keys())
+        index = min(set(range(max(output_indexes) + 2)) - set(output_indexes))
+        if frame_props:
+            clip = core.text.FrameProps(clip, alignment=frame_props)
+        if frame_num:
+            clip = core.text.FrameNum(clip, alignment=frame_num)
+        if name:
+            clip = core.text.Text(clip, name, alignment=text)
+        clip.set_output(index)
+        return clip
+
+    for name, clip in clips.items():
+        _output(clip, name if text else None)
+
+
+def finalise(
+    final: vs.VideoNode,
+    limit_range: bool = True,
+    output_fmt: str = "10",
+    include: Optional[List[vs.VideoNode]] = None,
+    exclude: Optional[List[vs.VideoNode]] = None,
+    text: Union[bool, int] = True,
+    frame_props: Union[bool, int] = False,
+    frame_num: Union[bool, int] = False,
+    src_fft: Optional[bool] = None,
+):
+    from .format import set_format
+
+    if limit_range:
+        final = core.std.Limiter(final, 16 << 8, [235 << 8, 240 << 8])
+    final = set_format(final, output_fmt)
+    final.set_output(0)
+
+    debug_output_multi(include, exclude, text, frame_props, frame_num, src_fft, 2)

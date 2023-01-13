@@ -22,3 +22,5 @@ vsnp = vsnumpy
 # individual exports
 debug_output = scripting.debug_output
 setup_env = scripting.setup_environment
+debug_output_multi = scripting.debug_output_multi
+finalise = scripting.finalise
